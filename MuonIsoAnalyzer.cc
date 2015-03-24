@@ -108,6 +108,7 @@ private:
   
   edm::InputTag vxtTag;
   bool useIPxy, useIPz;
+  bool useDYGenVtx;
 
   TH1F *h_muon_tight_number;
   TH1F *h_muon_loose_number;
@@ -149,9 +150,10 @@ private:
 // constructors and destructor
 //
 MuonIsoAnalyzer::MuonIsoAnalyzer(const edm::ParameterSet& iConfig):
-  vxtTag (iConfig.getParameter< edm::InputTag >("vxtTag")),
-  useIPxy(iConfig.getUntrackedParameter<bool  >("useIPxy",true)),  
-  useIPz (iConfig.getUntrackedParameter<bool  >("useIPz", true))  
+  vxtTag     (iConfig.getParameter< edm::InputTag>("vxtTag")),
+  useIPxy    (iConfig.getUntrackedParameter<bool >("useIPxy",  true)),  
+  useIPz     (iConfig.getUntrackedParameter<bool >("useIPz",   true)), 
+  useDYGenVtx(iConfig.getUntrackedParameter<bool >("useDYGenVtx", false))  
 {
   //now do what ever initialization is needed
   edm::Service<TFileService> fs;
@@ -222,6 +224,38 @@ MuonIsoAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup
    b_muon_PhotonIso = new std::vector<float>;
    b_muon_PUpTIso   = new std::vector<float>;
 
+   // Vertex  
+   edm::Handle<reco::VertexCollection> vertex;
+   iEvent.getByLabel(vxtTag, vertex);
+   const reco::VertexCollection& vtxs = *(vertex.product());
+   
+   int firstGoodVertex = -999;
+   
+   // Loop over vertices
+   if (vtxs.size() != 0) {
+     for (size_t i=0; i<vtxs.size(); i++) {
+       
+       bool isGoodVertex  = false;
+       
+       if ( fabs(vtxs[i].z())        < 24 &&
+	    vtxs[i].position().Rho() < 2  &&
+	    vtxs[i].ndof()           > 4  &&
+	    !(vtxs[i].isFake())              ) {
+	 
+	 isGoodVertex = true;
+	 
+	 if (firstGoodVertex < 0) firstGoodVertex = i;
+       }
+       
+       b_vertex_x          -> push_back(vtxs[i].x());
+       b_vertex_y          -> push_back(vtxs[i].y());
+       b_vertex_z          -> push_back(vtxs[i].z());
+       b_vertex_isGood     -> push_back(isGoodVertex);
+     }// for(vertex)
+   } // if(vertex)
+   
+   //std::cout << "First good Vertex: " << firstGoodVertex << std::endl;
+
    edm::Handle<reco::MuonCollection> n_muons;
    iEvent.getByLabel("muons", n_muons);
    
@@ -236,36 +270,6 @@ MuonIsoAnalyzer::analyze(const edm::Event& iEvent, const edm::EventSetup& iSetup
 
      if (IsLooseMuon(iEvent, i_muon)) {
        
-       // Vertex  
-       edm::Handle<reco::VertexCollection> vertex;
-       iEvent.getByLabel(vxtTag, vertex);
-       const reco::VertexCollection& vtxs = *(vertex.product());
-
-       int firstGoodVertex = -999;
-
-       // Loop over vertices
-       if (vtxs.size() != 0) {
-	 for (size_t i=0; i<vtxs.size(); i++) {
-
-	   bool isGoodVertex  = false;
-
-	   if ( fabs(vtxs[i].z())        < 24 &&
-		vtxs[i].position().Rho() < 2  &&
-		vtxs[i].ndof()           > 4  &&
-		!(vtxs[i].isFake())              ) {
-
-	     isGoodVertex = true;
-
-	     if (firstGoodVertex < 0) firstGoodVertex = i;
-	   }
-
-	   b_vertex_x          -> push_back(vtxs[i].x());
-	   b_vertex_y          -> push_back(vtxs[i].y());
-	   b_vertex_z          -> push_back(vtxs[i].z());
-	   b_vertex_isGood     -> push_back(isGoodVertex);
-	 }// for(vertex)
-       } // if(vertex)
-
        // Number of loose muons
        n_muon_loose++;
 
@@ -443,41 +447,98 @@ bool MuonIsoAnalyzer::IsTightMuon(const edm::Event& iEvent, reco::MuonCollection
     const reco::VertexCollection* vertices = vertexHandle.product();
     
     double distInit = 24;
-    int indexFinal = 0;
+    int indexFinal = -1;
     
     for(int i = 0; i < (int)vertices->size(); i++){
 
-      //double vtxX = (*vertices)[i].x();
-      //double vtxY = (*vertices)[i].y();
-      double vtxZ = (*vertices)[i].z();
-      
-      double dist = fabs(DYZ - vtxZ);
-      //std::cout<<"dist "<<dist<<std::endl;
-      if(dist < distInit){
-	
-    	distInit = dist;
-    	indexFinal = i; // Closed vertex to the Z/gamma object
 
+      if(useDYGenVtx == true){
+	//double vtxX = (*vertices)[i].x();
+	//double vtxY = (*vertices)[i].y();
+	double vtxZ = (*vertices)[i].z();
+	
+	double dist = fabs(DYZ - vtxZ);
+	//std::cout<<"dist "<<dist<<std::endl;
+	if(dist < distInit){
+	
+	  distInit = dist;
+	  indexFinal = i; // Closed vertex to the Z/gamma object
+	  
+	}
+      } // if(DYGenVertx)
+      else if(useDYGenVtx == false){
+	if ( fabs((*vertices)[i].z())        < 24 &&
+	     (*vertices)[i].position().Rho() < 2  &&
+	     (*vertices)[i].ndof()           > 4  &&
+	     !((*vertices)[i].isFake())              ) {
+	    
+	    if (indexFinal < 0) indexFinal = i;
+	  }
+	  
+	}// else
+	
+    }// for(vertices)
+
+    bool ipxy = false;
+    bool ipz  = false;
+
+    if(useDYGenVtx == true){ 
+      double ipxySim = 999;
+      double ipzSim = 999;
+      
+      if(vtxCoord[0] == 2 || vtxCoord[0] == 3){
+	ipxySim = fabs(i_muon_candidate->muonBestTrack()->dxy(math::XYZPoint(point.x(),point.y(),point.z())));
+	ipzSim  = fabs(i_muon_candidate->muonBestTrack()-> dz(math::XYZPoint(point.x(),point.y(),point.z())));
       }
       
-    }// for(vertices)
-    //std::cout<<distInit<<" "<<indexFinal<<std::endl;
-
-    double ipxySim = 999;
-    double ipzSim = 999;
+      else if(vtxCoord[0] == 1 ){
+	ipxySim = fabs(i_muon_candidate->muonBestTrack()->dxy(math::XYZPoint(pointDY.x(),pointDY.y(),pointDY.z())));
+	ipzSim  = fabs(i_muon_candidate->muonBestTrack()-> dz(math::XYZPoint(pointDY.x(),pointDY.y(),pointDY.z())));	
+      }
+      
+      bool ipxySimBool = ipxySim < 0.2;
+      bool ipzSimBool = ipzSim < 0.5;
+      
+      if(vertices->size() !=0 && useIPxy == true){
+	if(vtxCoord[0] == 1)      ipxy = fabs(i_muon_candidate->muonBestTrack()->dxy((*vertices)[indexFinal].position())) < 0.2;
+	else if(vtxCoord[0] == 3) ipxy = fabs(i_muon_candidate->muonBestTrack()->dxy((*vertices)[0].position())) < 0.2;
+	else ipxy = ipxySimBool;
+      }
+      else if(vertices->size() == 0 && useIPxy == true) ipxy = false;
+      else if(useIPxy == false) ipxy = true;
+      
+      if(vertices->size() !=0 && useIPz == true){
+	if(vtxCoord[0] == 1)     ipz = fabs(i_muon_candidate->muonBestTrack()->dz((*vertices)[indexFinal].position())) < 0.5;
+	else if(vtxCoord[0] > 3) ipz = fabs(i_muon_candidate->muonBestTrack()->dz((*vertices)[0].position())) < 0.5;
+	else ipz = ipzSimBool;
+      }
+      else if(vertices->size() == 0 && useIPz == true) ipz = false;
+      else if(useIPz == false) ipz = true;
+   
+    } //if(DYGenVertx)
     
-    if(vtxCoord[0] == 2 || vtxCoord[0] == 3){
-      ipxySim = fabs(i_muon_candidate->muonBestTrack()->dxy(math::XYZPoint(point.x(),point.y(),point.z())));
-      ipzSim  = fabs(i_muon_candidate->muonBestTrack()-> dz(math::XYZPoint(point.x(),point.y(),point.z())));
+    else if(useDYGenVtx == false){
+      if(useIPz  == true && 
+	 useIPxy == true){
+	ipz  = fabs(i_muon_candidate->muonBestTrack()->dz ((*vertices)[indexFinal].position())) < 0.5;
+	ipxy = fabs(i_muon_candidate->muonBestTrack()->dxy((*vertices)[indexFinal].position())) < 0.2;
+      }
+      else if(useIPz  == true && 
+	      useIPxy == false){
+	ipz  = fabs(i_muon_candidate->muonBestTrack()->dz ((*vertices)[indexFinal].position())) < 0.5;
+        ipxy = true;
+      }
+      else if(useIPz  == false && 
+	      useIPxy == true){
+	ipz  = true;
+	ipxy = fabs(i_muon_candidate->muonBestTrack()->dxy((*vertices)[indexFinal].position())) < 0.2;
+      }
+      else if (useIPz  == true &&
+	       useIPxy == true){
+	ipz  = true;
+        ipxy = true;
+      }
     }
-    else if(vtxCoord[0] == 1 ){
-      ipxySim = fabs(i_muon_candidate->muonBestTrack()->dxy(math::XYZPoint(pointDY.x(),pointDY.y(),pointDY.z())));
-      ipzSim  = fabs(i_muon_candidate->muonBestTrack()-> dz(math::XYZPoint(pointDY.x(),pointDY.y(),pointDY.z())));
-
-    }
-
-    bool ipxySimBool = ipxySim < 0.2;
-    bool ipzSimBool = ipzSim < 0.5;
 
     bool trkLayMeas = i_muon_candidate->innerTrack()->hitPattern().trackerLayersWithMeasurement() > 5; 
     bool isGlb = i_muon_candidate->isGlobalMuon(); 
@@ -486,23 +547,6 @@ bool MuonIsoAnalyzer::IsTightMuon(const edm::Event& iEvent, reco::MuonCollection
     bool validHits = i_muon_candidate->globalTrack()->hitPattern().numberOfValidMuonHits() > 0; 
     bool matchedSt = i_muon_candidate->numberOfMatchedStations() > 1;
 
-    bool ipxy = false;
-    bool ipz  = false;
-    if(vertices->size() !=0 && useIPxy == true){
-      if(vtxCoord[0] == 1)      ipxy = fabs(i_muon_candidate->muonBestTrack()->dxy((*vertices)[indexFinal].position())) < 0.2;
-      else if(vtxCoord[0] == 3) ipxy = fabs(i_muon_candidate->muonBestTrack()->dxy((*vertices)[0].position())) < 0.2;
-      else ipxy = ipxySimBool;
-    }
-    else if(vertices->size() == 0 && useIPxy == true) ipxy = false;
-    else if(useIPxy == false) ipxy = true;
-
-    if(vertices->size() !=0 && useIPz == true){
-      if(vtxCoord[0] == 1)     ipz = fabs(i_muon_candidate->muonBestTrack()->dz((*vertices)[indexFinal].position())) < 0.5;
-      else if(vtxCoord[0] > 3) ipz = fabs(i_muon_candidate->muonBestTrack()->dz((*vertices)[0].position())) < 0.5;
-      else ipz = ipzSimBool;
-    }
-    else if(vertices->size() == 0 && useIPz == true) ipz = false;
-    else if(useIPz == false) ipz = true;
 
     //bool validPxlHit = i_muon_candidate->innerTrack()->hitPattern().numberOfValidPixelHits() > 0;
     bool validPxlHit = i_muon_candidate->innerTrack()->hitPattern().pixelLayersWithMeasurement(3,2) > 0;
@@ -522,6 +566,7 @@ bool MuonIsoAnalyzer::IsTightMuon(const edm::Event& iEvent, reco::MuonCollection
 
   return result;
 }
+
 
 
 // ------------ method called once each job just before starting event loop  ------------
