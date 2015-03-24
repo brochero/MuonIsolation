@@ -123,7 +123,6 @@ int main(int argc, const char* argv[]){
   std::cout << fname + ".root" << std::endl;
   
   theTree.Add(fdir + fname + ".root");
-
   
   std::vector<float> *vertex_x=0, *vertex_y=0,*vertex_z=0,*vertex_isGood=0;
   std::vector<float> *muon_px=0, *muon_py=0, *muon_pz=0, *muon_E=0; 
@@ -131,10 +130,10 @@ int main(int argc, const char* argv[]){
   std::vector<float> *ChHadrIso=0, *NeHadrIso=0, *PhotonIso=0, *PUpTIso=0;  
 
   // Vertex
-  theTree.SetBranchAddress("b_vertex_x",      &vertex_x);
-  theTree.SetBranchAddress("b_vertex_y",      &vertex_y);
-  theTree.SetBranchAddress("b_vertex_z",      &vertex_z);
-  theTree.SetBranchAddress("b_vertex_isGood", &vertex_isGood);
+  theTree.SetBranchAddress("vertex_x",      &vertex_x);
+  theTree.SetBranchAddress("vertex_y",      &vertex_y);
+  theTree.SetBranchAddress("vertex_z",      &vertex_z);
+  theTree.SetBranchAddress("vertex_isGood", &vertex_isGood);
 
   // Muon
   theTree.SetBranchAddress( "muon_px", &muon_px );
@@ -157,23 +156,24 @@ int main(int argc, const char* argv[]){
   TH1F *hvertex_number, *hvertex_goodnumber;
   TH1F * hmuon_number, *hpassmuon_number;
   TH1F *hmuon_IsoCh, *hmuon_IsoNe, *hmuon_IsoPh, *hmuon_IsoPU;
-  TH1F *hmuon_pT, *hmuon_eta,  *hmuon_vertex, *hmuon_RelIso, *hmuon_RelIsoNoPU;
+  TH1F *hmuon_pT, *hmuon_eta,  *hmuon_vertex;
+  TH1F *hmuon_RelIso, *hmuon_RelIsoNoPU, *hmuon_RelIsoCh;
   TH1F *hpassmuon_pT, *hpassmuon_eta, *hpassmuon_vertex;
   TH1F *hmuon_IsoCut;
   TProfile *hmuon_pT_RelIso, *hmuon_eta_RelIso;
 
-  hvertex_number     = new TH1F("hvertex_number","Number of PV",100,0,2000);
-  hvertex_goodnumber = new TH1F("hvertex_goodnumber","Number of good PV",100,0,2000);
+  hvertex_number     = new TH1F("hvertex_number","Number of PV",100,0,200);
+  hvertex_goodnumber = new TH1F("hvertex_goodnumber","Number of good PV",100,0,200);
 
   hmuon_number = new TH1F("hmuon_number","Number of muons per event",20,0,20);
   hmuon_pT     = new TH1F("hmuon_pT","muon pT",100,0,200);
   hmuon_eta    = new TH1F("hmuon_eta","muon #eta",20,0,2.5);
-  hmuon_vertex = new TH1F("hmuon_vertex","Vertices (1 entry per muon)",50,0,2000);
+  hmuon_vertex = new TH1F("hmuon_vertex","Vertices (1 entry per muon)",100,0,200);
 
   hpassmuon_number = new TH1F("hpassmuon_number","Number of isolated muons per event",20,0,20);
   hpassmuon_pT     = new TH1F("hpassmuon_pT","muon pT with Iso cut",100,0,200);
   hpassmuon_eta    = new TH1F("hpassmuon_eta","muon #eta with Iso cut",20,0,2.5);
-  hpassmuon_vertex = new TH1F("hpassmuon_vertex","Vertices (1 entry per muon isolated)",50,0,2000);
+  hpassmuon_vertex = new TH1F("hpassmuon_vertex","Vertices (1 entry per muon isolated)",100,0,200);
   
   hmuon_IsoCh = new TH1F("hmuon_IsoCh","muon Iso. Charged",40,0,10);
   hmuon_IsoNe = new TH1F("hmuon_IsoNe","muon Iso. Neutral",40,0,10);
@@ -182,6 +182,7 @@ int main(int argc, const char* argv[]){
 
   hmuon_RelIsoNoPU = new TH1F("hmuon_RelIsoNoPU","muon Rel. Isolation w/o PU mitigation",40,0,10);
   hmuon_RelIso     = new TH1F("hmuon_RelIso","muon Relative Isolation",40,0,2);
+  hmuon_RelIsoCh   = new TH1F("hmuon_RelIsoCh","muon Rel. Charged Iso.",40,0,2);
 
   hmuon_IsoCut  = new TH1F("hmuon_IsoCut", "Muon Rel. Isolation Cut", 50, 0.0, 0.5);
 
@@ -238,10 +239,11 @@ int main(int argc, const char* argv[]){
 
       TLorentzVector muon;
       muon.SetPxPyPzE( (*muon_px)[i_muon], (*muon_py)[i_muon], (*muon_pz)[i_muon], (*muon_E)[i_muon] );
-	
-      if(muon_IsTight && 
-	 muon.Pt() > 5 &&
-	 fabs(muon.Eta()) < 2.4){
+
+      if((*muon_IsTight)[i_muon] && 
+	 muon.Pt() > 20 &&
+	 fabs(muon.Eta()) < 2.4
+	 ){
 
 	n_muons++;
 
@@ -265,6 +267,7 @@ int main(int argc, const char* argv[]){
 
 	hmuon_RelIso->Fill(RelIso);
 	hmuon_RelIsoNoPU->Fill(RelIsoNoPU);
+	hmuon_RelIsoCh->Fill((*ChHadrIso)[i_muon]/muon.Pt());
 	
 	hmuon_pT_RelIso->Fill(muon.Pt(),RelIso);
 	hmuon_eta_RelIso->Fill(fabs(muon.Eta()),RelIso);
@@ -273,7 +276,8 @@ int main(int argc, const char* argv[]){
 	hmuon_IsoCut->Fill(10); // Overflows to count the total number of muons
 	double isocut_step = 0.5;
 	for(int step=0; step < 50; step++){
-	  if(RelIso < isocut_step) hmuon_IsoCut->Fill(isocut_step - (0.005));
+	  if((*ChHadrIso)[i_muon]/muon.Pt() < isocut_step) hmuon_IsoCut->Fill(isocut_step - (0.005));
+	  //if(RelIso < isocut_step) hmuon_IsoCut->Fill(isocut_step - (0.005));
 	  else continue;
 
 	  isocut_step = isocut_step - 0.01; // binning
@@ -373,6 +377,7 @@ int main(int argc, const char* argv[]){
 
   hmuon_RelIsoNoPU->Write();
   hmuon_RelIso->Write();
+  hmuon_RelIsoCh->Write();
 
   hmuon_pT_RelIso->Write();
   hmuon_eta_RelIso->Write();
