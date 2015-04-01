@@ -1,5 +1,5 @@
-// -*- C++ -*-
-//
+ // -*- C++ -*-
+ //
 // Package:    PatAlgos
 // Class:      IsoAnalyzer
 // 
